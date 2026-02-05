@@ -20,7 +20,7 @@ type ChartModuleProps = {
 };
 
 const TIME_OPTIONS: TimeAggregation[] = ['D', 'W', 'M', 'Cum'];
-const COLORS = ['#7c8fff', '#44d19f', '#f6c445', '#ff7aa2', '#5dd0ff'];
+const COLORS = ['#8aa4ff', '#5ecaa7', '#f0c36d', '#f08db3', '#6bb6ff', '#b59bff'];
 
 function parseDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -159,6 +159,30 @@ function formatDate(date: Date) {
   });
 }
 
+function humanizeSeriesLabel(key: string) {
+  const normalized = key.replace(/_/g, ' ').replace(/  +/g, ' ').trim();
+  const lower = normalized.toLowerCase();
+  const match = lower.match(/(\d{1,9})/);
+  if (match) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) {
+      const formatted =
+        value >= 1_000_000
+          ? `$${value / 1_000_000}M+`
+          : value >= 1_000
+          ? `$${value / 1_000}K+`
+          : `$${value}+`;
+      return formatted;
+    }
+  }
+  return normalized
+    .replace(/addresses|traders|volume/gi, '')
+    .replace(/by/gi, '')
+    .replace(/  +/g, ' ')
+    .trim()
+    .replace(/^all$/i, 'All');
+}
+
 function getDefaultRange(length: number, aggregation: TimeAggregation) {
   if (length === 0) {
     return { start: 0, end: 0 };
@@ -231,19 +255,6 @@ function formatTick(value: number) {
   return formatCompact(value);
 }
 
-function getIndexFromEvent(
-  event: { clientX: number },
-  container: HTMLDivElement | null,
-  length: number
-) {
-  if (!container || length <= 1) {
-    return 0;
-  }
-  const rect = container.getBoundingClientRect();
-  const ratio = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
-  return Math.round(ratio * (length - 1));
-}
-
 export default function ChartModule({
   title,
   rows,
@@ -255,10 +266,7 @@ export default function ChartModule({
   const [aggregation, setAggregation] = useState<TimeAggregation>('D');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [tooltipLeft, setTooltipLeft] = useState(0);
-  const [dragMode, setDragMode] = useState<'select' | 'move' | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
-  const overviewRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
 
   const aggregated = useMemo(
@@ -279,9 +287,8 @@ export default function ChartModule({
   const seriesKeys = buildSeriesKeys(visibleData, multiSeries);
   const activeSeriesKeys = seriesKeys.filter((key) => !hiddenSeries.has(key));
   const displaySeriesKeys = activeSeriesKeys.length > 0 ? activeSeriesKeys : seriesKeys;
+  const chartSeriesKeys = chartType === 'bar' ? displaySeriesKeys.slice(0, 1) : displaySeriesKeys;
   const { min, max } = computeSeriesRange(visibleData, displaySeriesKeys);
-  const overviewKeys = buildSeriesKeys(aggregated, multiSeries);
-  const overviewRange = computeSeriesRange(aggregated, overviewKeys);
 
   useEffect(() => {
     setRangeStart(defaultRange.start);
@@ -304,55 +311,12 @@ export default function ChartModule({
     });
   };
 
-  const selectionLeft = aggregated.length > 1 ? (clampedStart / (aggregated.length - 1)) * 100 : 0;
-  const selectionRight = aggregated.length > 1 ? (clampedEnd / (aggregated.length - 1)) * 100 : 100;
-
-  const handleOverviewMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (aggregated.length <= 1) {
-      return;
-    }
-    const index = getIndexFromEvent(event, overviewRef.current, aggregated.length);
-    const selectionStart = Math.min(clampedStart, clampedEnd);
-    const selectionEnd = Math.max(clampedStart, clampedEnd);
-    if (index >= selectionStart && index <= selectionEnd) {
-      setDragMode('move');
-      setDragOffset(index - selectionStart);
-      return;
-    }
-    setDragMode('select');
-    setRangeStart(index);
-    setRangeEnd(index);
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (event: globalThis.MouseEvent) => {
-      if (!dragMode) {
-        return;
-      }
-      const index = getIndexFromEvent(event, overviewRef.current, aggregated.length);
-      if (dragMode === 'select') {
-        setRangeEnd(index);
-        return;
-      }
-      const selectionLength = Math.max(0, clampedEnd - clampedStart);
-      const newStart = Math.max(0, Math.min(index - dragOffset, aggregated.length - 1 - selectionLength));
-      setRangeStart(newStart);
-      setRangeEnd(newStart + selectionLength);
-    };
-    const handleMouseUp = () => setDragMode(null);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [aggregated.length, clampedEnd, clampedStart, dragMode, dragOffset]);
 
   return (
     <ModuleCard>
       <ModuleHeader title={title} />
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-        <div className="flex items-center gap-1 rounded-full bg-white/5 p-1">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2 rounded-full bg-white/5 p-1 text-xs text-text-muted">
           {TIME_OPTIONS.map((option) => (
             <button
               key={option}
@@ -366,13 +330,33 @@ export default function ChartModule({
             </button>
           ))}
         </div>
-        {visibleData.length > 0 && (
-          <span>
-            {formatDate(visibleData[0].date)} → {formatDate(visibleData[visibleData.length - 1].date)}
-          </span>
+        {seriesKeys.length > 1 && (
+          <div className="flex flex-wrap justify-end gap-2 text-xs text-text-muted">
+            {seriesKeys.map((key, index) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleSeries(key)}
+                className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
+                  hiddenSeries.has(key)
+                    ? 'border-white/10 text-text-muted'
+                    : 'border-white/20 text-white'
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    backgroundColor: COLORS[index % COLORS.length],
+                    opacity: hiddenSeries.has(key) ? 0.3 : 1
+                  }}
+                />
+                {humanizeSeriesLabel(key)}
+              </button>
+            ))}
+          </div>
         )}
       </div>
-      <div className="mt-4 rounded-xl bg-surface-muted/50 p-4">
+      <div className="mt-4 rounded-xl bg-surface-muted/40 p-4">
         {visibleData.length === 0 ? (
           <p className="text-sm text-text-muted">No data available.</p>
         ) : (
@@ -393,28 +377,28 @@ export default function ChartModule({
             }}
           >
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-              <line x1="8" y1="90" x2="98" y2="90" stroke="rgba(255,255,255,0.2)" strokeWidth="0.4" />
-              <line x1="8" y1="10" x2="8" y2="90" stroke="rgba(255,255,255,0.2)" strokeWidth="0.4" />
+              <line x1="12" y1="86" x2="98" y2="86" stroke="rgba(255,255,255,0.2)" strokeWidth="0.3" />
+              <line x1="12" y1="10" x2="12" y2="86" stroke="rgba(255,255,255,0.2)" strokeWidth="0.3" />
               {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                const y = 90 - ratio * 80;
+                const y = 86 - ratio * 76;
                 return (
                   <line
                     key={ratio}
-                    x1="8"
+                    x1="12"
                     y1={y}
                     x2="98"
                     y2={y}
                     stroke="rgba(255,255,255,0.08)"
-                    strokeWidth="0.3"
+                    strokeWidth="0.2"
                   />
                 );
               })}
               {[min, (min + max) / 2, max].map((value, index) => (
                 <text
                   key={index}
-                  x="2"
-                  y={90 - (index * 40)}
-                  fontSize="3"
+                  x="1"
+                  y={86 - (index * 38)}
+                  fontSize="2.8"
                   fill="rgba(255,255,255,0.5)"
                 >
                   {formatTick(value)}
@@ -422,61 +406,61 @@ export default function ChartModule({
               ))}
               {visibleData.length > 0 && (
                 <>
-                  <text x="8" y="98" fontSize="3" fill="rgba(255,255,255,0.5)">
+                  <text x="12" y="96" fontSize="2.8" fill="rgba(255,255,255,0.5)">
                     {formatDate(visibleData[0].date)}
                   </text>
-                  <text x="50" y="98" fontSize="3" textAnchor="middle" fill="rgba(255,255,255,0.5)">
+                  <text x="55" y="96" fontSize="2.8" textAnchor="middle" fill="rgba(255,255,255,0.5)">
                     {formatDate(visibleData[Math.floor(visibleData.length / 2)].date)}
                   </text>
-                  <text x="98" y="98" fontSize="3" textAnchor="end" fill="rgba(255,255,255,0.5)">
+                  <text x="98" y="96" fontSize="2.8" textAnchor="end" fill="rgba(255,255,255,0.5)">
                     {formatDate(visibleData[visibleData.length - 1].date)}
                   </text>
                 </>
               )}
-              {chartType === 'line' && displaySeriesKeys.map((key, index) => (
+              {chartType === 'line' && chartSeriesKeys.map((key, index) => (
                 <path
                   key={key}
                   d={buildPath(visibleData, key, min, max)}
                   fill="none"
                   stroke={COLORS[index % COLORS.length]}
-                  strokeWidth="1.2"
+                  strokeWidth="0.9"
                 />
               ))}
-              {chartType === 'bar' && displaySeriesKeys.map((key, index) => {
-                const barWidth = 90 / Math.max(1, visibleData.length);
+              {chartType === 'bar' && chartSeriesKeys.map((key, index) => {
+                const barWidth = 86 / Math.max(1, visibleData.length);
                 return visibleData.map((point, pointIndex) => {
                   const value = point.values[key] ?? 0;
                   const normalized = (value - min) / (max - min || 1);
-                  const heightValue = normalized * 80;
+                  const heightValue = normalized * 76;
                   return (
                     <rect
                       key={`${key}-${pointIndex}`}
-                      x={8 + pointIndex * barWidth + 1}
-                      y={90 - heightValue}
-                      width={Math.max(barWidth - 2, 0.5)}
+                      x={12 + pointIndex * barWidth + 0.2}
+                      y={86 - heightValue}
+                      width={Math.max(barWidth - 0.6, 0.5)}
                       height={heightValue}
                       fill={COLORS[index % COLORS.length]}
-                      opacity={0.8}
+                      opacity={0.85}
                     />
                   );
                 });
               })}
-              {chartType === 'grouped-bar' && displaySeriesKeys.map((key, seriesIndex) => {
-                const groupWidth = 90 / Math.max(1, visibleData.length);
-                const barWidth = groupWidth / Math.max(1, displaySeriesKeys.length);
+              {chartType === 'grouped-bar' && chartSeriesKeys.map((key, seriesIndex) => {
+                const groupWidth = 86 / Math.max(1, visibleData.length);
+                const barWidth = groupWidth / Math.max(1, chartSeriesKeys.length);
                 return visibleData.map((point, pointIndex) => {
                   const value = point.values[key] ?? 0;
                   const normalized = (value - min) / (max - min || 1);
-                  const heightValue = normalized * 80;
+                  const heightValue = normalized * 76;
                   return (
                     <rect
                       key={`${key}-${pointIndex}`}
-                      x={8 + pointIndex * groupWidth + seriesIndex * barWidth}
-                      y={90 - heightValue}
-                      width={Math.max(barWidth - 0.5, 0.4)}
+                      x={12 + pointIndex * groupWidth + seriesIndex * barWidth}
+                      y={86 - heightValue}
+                      width={Math.max(barWidth - 0.4, 0.3)}
                       height={heightValue}
                       fill={COLORS[seriesIndex % COLORS.length]}
-                      opacity={0.85}
+                      opacity={0.9}
                     />
                   );
                 });
@@ -491,9 +475,9 @@ export default function ChartModule({
                 }}
               >
                 <div className="text-text-muted">{formatDate(visibleData[hoverIndex].date)}</div>
-                {displaySeriesKeys.map((key) => (
+                {chartSeriesKeys.map((key) => (
                   <div key={key} className="flex items-center justify-between gap-3">
-                    <span className="text-text-muted">{key}</span>
+                    <span className="text-text-muted">{humanizeSeriesLabel(key)}</span>
                     <span className="font-semibold text-white">
                       {visibleData[hoverIndex].values[key] !== undefined
                         ? formatCompact(visibleData[hoverIndex].values[key])
@@ -506,55 +490,32 @@ export default function ChartModule({
           </div>
         )}
       </div>
-      {seriesKeys.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-text-muted">
-          {seriesKeys.map((key, index) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => toggleSeries(key)}
-              className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
-                hiddenSeries.has(key) ? 'border-white/10 text-text-muted' : 'border-white/20 text-white'
-              }`}
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{
-                  backgroundColor: COLORS[index % COLORS.length],
-                  opacity: hiddenSeries.has(key) ? 0.3 : 1
-                }}
-              />
-              {key}
-            </button>
-          ))}
-        </div>
-      )}
       {aggregated.length > 1 && (
-        <div className="mt-4">
-          <div className="text-xs text-text-muted">Range</div>
-          <div
-            ref={overviewRef}
-            className={`relative mt-2 h-16 w-full rounded-lg bg-surface-muted/60 ${dragMode ? 'cursor-grabbing' : 'cursor-pointer'}`}
-            onMouseDown={handleOverviewMouseDown}
-          >
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-              {buildSeriesKeys(aggregated, multiSeries).map((key, index) => (
-                <path
-                  key={key}
-                  d={buildPath(aggregated, key, overviewRange.min, overviewRange.max)}
-                  fill="none"
-                  stroke={COLORS[index % COLORS.length]}
-                  strokeWidth="0.8"
-                  opacity={0.5}
-                />
-              ))}
-            </svg>
-            <div
-              className="absolute inset-y-0 rounded-md border border-accent/50 bg-accent/10"
-              style={{
-                left: `${selectionLeft}%`,
-                width: `${Math.max(selectionRight - selectionLeft, 1)}%`
-              }}
+        <div className="mt-4 space-y-2 text-xs text-text-muted">
+          <div className="flex items-center justify-between">
+            <span>Range</span>
+            {visibleData.length > 0 && (
+              <span>
+                {formatDate(visibleData[0].date)} → {formatDate(visibleData[visibleData.length - 1].date)}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, aggregated.length - 1)}
+              value={clampedStart}
+              onChange={(event) => setRangeStart(Number(event.target.value))}
+              className="w-full accent-accent"
+            />
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, aggregated.length - 1)}
+              value={clampedEnd}
+              onChange={(event) => setRangeEnd(Number(event.target.value))}
+              className="w-full accent-accent"
             />
           </div>
         </div>
