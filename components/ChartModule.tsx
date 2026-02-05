@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ModuleCard from './ModuleCard';
 import ModuleHeader from './ModuleHeader';
 
@@ -274,7 +274,7 @@ export default function ChartModule({ title, rows, multiSeries, height = 240 }: 
   const selectionLeft = aggregated.length > 1 ? (clampedStart / (aggregated.length - 1)) * 100 : 0;
   const selectionRight = aggregated.length > 1 ? (clampedEnd / (aggregated.length - 1)) * 100 : 100;
 
-  const handleOverviewMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+  const handleOverviewMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (aggregated.length <= 1) {
       return;
     }
@@ -292,7 +292,7 @@ export default function ChartModule({ title, rows, multiSeries, height = 240 }: 
   };
 
   useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
+    const handleMouseMove = (event: globalThis.MouseEvent) => {
       if (!dragMode) {
         return;
       }
