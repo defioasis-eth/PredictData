@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-surface: #f7f8fb;
+  --color-surface-muted: #eef1f7;
+  --color-surface-card: #ffffff;
+  --color-text-primary: #0f172a;
+  --color-text-muted: #64748b;
+  --color-accent: #3b5bdb;
+  --color-border: rgba(15, 23, 42, 0.12);
+  --color-grid: rgba(15, 23, 42, 0.08);
+  --color-tooltip-bg: #ffffff;
+  --color-tooltip-border: rgba(15, 23, 42, 0.14);
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-surface: #0b1020;
+  --color-surface-muted: #111830;
+  --color-surface-card: #141c35;
+  --color-text-primary: #e6ecff;
+  --color-text-muted: #9fb0d6;
+  --color-accent: #7c8fff;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-grid: rgba(255, 255, 255, 0.08);
+  --color-tooltip-bg: #141c35;
+  --color-tooltip-border: rgba(255, 255, 255, 0.12);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-surface text-text-primary antialiased;
+}
+
+a {
+  @apply text-accent hover:text-text-primary transition-colors;
+}
